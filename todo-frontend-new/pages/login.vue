@@ -1,63 +1,96 @@
 <template>
-    <div class="auth-container">
-      <div class="auth-card">
-        <h1>Login</h1>
-        <form @submit.prevent="handleLogin">
-          <div class="form-group">
-            <label>Email</label>
-            <input
-              v-model="email"
-              type="email"
-              placeholder="Enter your email"
-              required
-            />
-          </div>
-          <div class="form-group">
-            <label>Password</label>
-            <input
-              v-model="password"
-              type="password"
-              placeholder="Enter your password"
-              required
-            />
-          </div>
-          <button type="submit" class="submit-btn">Login</button>
-          <p class="toggle-text">
-            Don't have an account? 
-            <NuxtLink to="/signup">Sign up</NuxtLink>
-          </p>
-        </form>
-      </div>
+  <div class="flex items-center justify-center min-h-screen bg-gray-100">
+    <div class="bg-white p-8 rounded-2xl shadow-md w-full max-w-md">
+      <h1 class="text-2xl font-bold mb-6 text-center">Login</h1>
+
+      <form @submit.prevent="handleLogin" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Email</label>
+          <input
+            v-model="email"
+            type="email"
+            required
+            class="w-full px-3 py-2 border rounded-lg focus:ring focus:ring-blue-300"
+          />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Password</label>
+          <input
+            v-model="password"
+            type="password"
+            required
+            class="w-full px-3 py-2 border rounded-lg focus:ring focus:ring-blue-300"
+          />
+        </div>
+
+        <button
+          type="submit"
+          class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg font-semibold transition"
+        >
+          Login
+        </button>
+
+        <p class="text-sm text-center mt-3">
+          Don’t have an account?
+          <NuxtLink to="/signup" class="text-blue-500 hover:underline">Sign up</NuxtLink>
+        </p>
+      </form>
     </div>
-  </template>
-  
-  <script setup>
-  import { ref } from 'vue';
-  
-  const email = ref('');
-  const password = ref('');
-  const router = useRouter();
-  
-  const handleLogin = async () => {
-    try {
-      const response = await $fetch('http://localhost:5000/api/auth/login', {
-        method: 'POST',
-        body: {
-          email: email.value,
-          password: password.value,
-        },
-      });
-  
-      localStorage.setItem('token', response.token);
-      localStorage.setItem('user', JSON.stringify(response.user));
-  
-      alert('Login successful!');
-      router.push('/');
-    } catch (error) {
-      alert(error.data?.message || 'Login failed');
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue';
+const email = ref('');
+const password = ref('');
+const router = useRouter();
+
+const handleLogin = async () => {
+  const query = `
+    mutation LoginUser($input: LoginUserInput!) {
+      loginUser(input: $input) {
+        token
+        user {
+          id
+          email
+        }
+      }
     }
+  `;
+
+  const variables = {
+    input: {
+      email: email.value,
+      password: password.value,
+    },
   };
-  </script>
+
+  try {
+    const response = await $fetch('http://localhost:5000/graphql', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    const data = response.data?.loginUser || response.loginUser;
+
+    if (!data?.token) throw new Error('Invalid credentials');
+
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('user', JSON.stringify(data.user));
+
+    alert('✅ Login successful!');
+    router.push('/');
+  } catch (error) {
+    console.error(error);
+    alert(error.data?.message || '❌ Login failed');
+  }
+};
+</script>
+
   
   <style scoped>
   .auth-container {

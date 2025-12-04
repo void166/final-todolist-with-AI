@@ -34,13 +34,12 @@
     <div class="header">
       <button class="nemehBt" @click="showInput = !showInput">Нэмэх</button>
       <button class="hasahBt" @click="showDel = !showDel">Хасах</button>
-      <button class="updateBt" @click="showUpdate = !showUpdate">
-        Шинэчлэх
-      </button>
+      <button class="updateBt" @click="showUpdate = !showUpdate">Шинэчлэх</button>
+      <button class="descBt" @click="showDescription = !showDescription">Тайлбар</button>
     </div>
 
     <!-- Add Todo Input -->
-    <div v-if="showInput && !showDel && !showUpdate" class="add-input">
+    <div v-if="showInput && !showDel && !showUpdate && !showDescription" class="add-input">
       <input
         v-model="newTitle"
         @keyup.enter="addTodo"
@@ -64,23 +63,90 @@
     >
       <template #item="{ element }">
         <li class="kk">
-          <span v-if="editingId !== element.id">{{ element.title }}</span>
-          <input
-            v-else
-            v-model="editingTitle"
-            @keyup.enter="saveEdit(element.id)"
-            placeholder="шинэ todo бичнэ үү"
-            class="todo-input"
-          />
+          <div class="todo-main">
+            <span v-if="editingId !== element.id" class="todo-title">
+              {{ element.title }}
+              <span v-if="element.priority" :class="['priority-badge', element.priority.toLowerCase()]">
+                {{ element.priority }}
+              </span>
+            </span>
+            <input
+              v-else
+              v-model="editingTitle"
+              @keyup.enter="saveEdit(element.id)"
+              placeholder="шинэ todo бичнэ үү"
+              class="todo-input"
+            />
+
+            <!-- Description Display -->
+            <div v-if="element.description && !editingDescId" class="todo-description">
+              📝 {{ element.description }}
+            </div>
+
+            <!-- Description Edit -->
+            <div v-if="editingDescId === element.id && showDescription" class="description-edit">
+              <textarea
+                v-model="editingDescription"
+                @keyup.ctrl.enter="saveDescription(element.id)"
+                placeholder="Тайлбар бичнэ үү..."
+                class="description-textarea"
+              ></textarea>
+              <button @click="saveDescription(element.id)" class="ok-button">Хадгалах</button>
+            </div>
+
+            <!-- Subtasks Display -->
+            <div v-if="expandedTodoId === element.id" class="subtasks-section">
+              <div class="subtasks-header">
+                <h4>Subtasks ({{ element.subtasks?.length || 0 }})</h4>
+                <button @click="showSubtaskInput(element.id)" class="add-subtask-btn">+ Subtask</button>
+              </div>
+
+              <!-- Add Subtask Input -->
+              <div v-if="addingSubtaskTo === element.id" class="add-subtask-input">
+                <input
+                  v-model="newSubtaskTitle"
+                  @keyup.enter="addSubtask(element.id)"
+                  placeholder="Subtask нэр..."
+                  class="todo-input"
+                />
+                <button @click="addSubtask(element.id)" class="ok-button">Ok</button>
+              </div>
+
+              <!-- Subtasks List -->
+              <ul v-if="element.subtasks && element.subtasks.length > 0" class="subtasks-list">
+                <li v-for="subtask in element.subtasks" :key="subtask.id" class="subtask-item">
+                  <span>{{ subtask.title }}</span>
+                  <button
+                    :class="subtask.status === 'DONE' ? 'done-button' : 'notdone-button'"
+                    @click="toggleSubtaskDone(element.id, subtask.id)"
+                  >
+                    {{ subtask.status === 'DONE' ? "Done" : "Not Done" }}
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </div>
 
           <div class="button-group">
+            <!-- Regular Buttons -->
             <button
-              v-if="editingId !== element.id && !showDel && !showUpdate"
-              :class="element.done ? 'done-button' : 'notdone-button'"
+              v-if="editingId !== element.id && !showDel && !showUpdate && !showDescription"
+              :class="element.status === 'DONE' ? 'done-button' : 'notdone-button'"
               @click="toggleDone(element.id)"
             >
-              {{ element.done ? "Done" : "Not Done" }}
+              {{ element.status === 'DONE' ? "Done" : "Not Done" }}
             </button>
+
+            <!-- Subtasks Toggle -->
+            <button
+              v-if="!showDel && !showUpdate && !showDescription"
+              @click="toggleSubtasks(element.id)"
+              class="subtask-toggle-btn"
+            >
+              {{ expandedTodoId === element.id ? '▼' : '▶' }} Subtasks
+            </button>
+
+            <!-- Delete Button -->
             <button
               v-if="showDel && editingId !== element.id"
               @click="delTodo(element.id)"
@@ -88,6 +154,8 @@
             >
               Del
             </button>
+
+            <!-- Update Button -->
             <button
               v-if="showUpdate && editingId !== element.id"
               @click="startEdit(element)"
@@ -95,6 +163,17 @@
             >
               Update
             </button>
+
+            <!-- Description Button -->
+            <button
+              v-if="showDescription && editingId !== element.id"
+              @click="startEditDescription(element)"
+              class="desc-button"
+            >
+              {{ element.description ? 'Edit Desc' : 'Add Desc' }}
+            </button>
+
+            <!-- Save Button -->
             <button
               v-if="editingId === element.id"
               @click="saveEdit(element.id)"
@@ -111,21 +190,17 @@
       No todos for this day. Click "Нэмэх" to add one!
     </div>
 
-    <!-- Embedded AI Chat (bottom-right) -->
+    <!-- Embedded AI Chat -->
     <div class="ai-chat-container">
-      <!-- AI Toggle Button -->
       <button
         @click="toggleChat"
         class="ai-toggle-btn"
         :class="{ active: showChat }"
       >
         🤖 AI Assistant
-        <span v-if="unreadCount > 0" class="unread-badge">{{
-          unreadCount
-        }}</span>
+        <span v-if="unreadCount > 0" class="unread-badge">{{ unreadCount }}</span>
       </button>
 
-      <!-- Chat Window -->
       <transition name="slide">
         <div v-if="showChat" class="chat-window">
           <div class="chat-header">
@@ -133,7 +208,6 @@
             <button @click="toggleChat" class="close-btn">✕</button>
           </div>
 
-          <!-- Messages with streaming cursor -->
           <div class="chat-messages" ref="messagesContainer">
             <div
               v-for="(msg, index) in messages"
@@ -141,35 +215,23 @@
               :class="['message', msg.role]"
             >
               <div class="message-content">
-                <!-- Text with cursor -->
                 <div class="message-text">
                   {{ msg.content }}
-                  <!-- Show cursor while streaming and content exists -->
                   <span
                     v-if="isLoading && index === messages.length - 1 && msg.content.length > 0"
                     class="streaming-cursor"
-                    >▊</span
-                  >
+                  >▊</span>
                 </div>
 
-                <!-- Created todos -->
-                <div
-                  v-if="msg.todos && msg.todos.length > 0"
-                  class="created-todos"
-                >
+                <div v-if="msg.todos && msg.todos.length > 0" class="created-todos">
                   <div class="todos-header">✓ Todo үүслээ:</div>
-                  <div
-                    v-for="todo in msg.todos"
-                    :key="todo.id"
-                    class="todo-item"
-                  >
-                    • {{ todo.title }} ({{ formatDateShort(todo.todoDate) }})
+                  <div v-for="todo in msg.todos" :key="todo.id" class="todo-item">
+                    • {{ todo.title }} ({{ formatDateShort(todo.startDate) }})
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- Loading indicator (before text starts) -->
             <div
               v-if="isLoading && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.content.length === 0"
               class="message assistant"
@@ -182,7 +244,6 @@
             </div>
           </div>
 
-          <!-- Input -->
           <div class="chat-input">
             <input
               v-model="userInput"
@@ -200,18 +261,11 @@
             </button>
           </div>
 
-          <!-- Quick Actions -->
           <div class="quick-actions">
-            <button
-              @click="quickPrompt('Миний todo-нууд юу байна?')"
-              class="quick-btn"
-            >
+            <button @click="quickPrompt('Миний todo-нууд юу байна?')" class="quick-btn">
               📋 Todo харах
             </button>
-            <button
-              @click="quickPrompt('Өнөөдөр юу хийх вэ?')"
-              class="quick-btn"
-            >
+            <button @click="quickPrompt('Өнөөдөр юу хийх вэ?')" class="quick-btn">
               💡 Зөвлөгөө
             </button>
           </div>
@@ -225,17 +279,34 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { useRouter } from "vue-router";
 import draggable from "vuedraggable";
-import { io } from "socket.io-client";
+import { createClient } from "graphql-ws";
 
-/* -----------------------------
-   Auth, Todos (main app)
-   ----------------------------- */
 const router = useRouter();
 const token = ref("");
 const userEmail = ref("");
-let socket = null;
+let wsClient = null;
+let unsubscribe = null;
 
-// Check authentication on mount
+// State
+const todos = ref([]);
+const showInput = ref(false);
+const showDel = ref(false);
+const showUpdate = ref(false);
+const showDescription = ref(false);
+const newTitle = ref("");
+const editingId = ref(null);
+const editingTitle = ref("");
+const editingDescId = ref(null);
+const editingDescription = ref("");
+const selectedDayIndex = ref(0);
+const weekStartDate = ref(new Date());
+
+// Subtask state
+const expandedTodoId = ref(null);
+const addingSubtaskTo = ref(null);
+const newSubtaskTitle = ref("");
+
+// Authentication check
 onMounted(() => {
   const storedToken = localStorage.getItem("token");
   const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -246,125 +317,223 @@ onMounted(() => {
     return;
   }
 
-  // ✅ Set token BEFORE initializing socket
   token.value = storedToken;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  weekStartDate.value = today;
-
   fetchTodos();
   
-  // ✅ Initialize socket connection AFTER token is set
-  nextTick(() => {
-    initializeSocket();
-  });
+  setTimeout(() => {
+    initializeWebSocket();
+  }, 500);
 });
 
 onUnmounted(() => {
-  if (socket) {
-    socket.disconnect();
-  }
+  if (unsubscribe) unsubscribe();
+  if (wsClient) wsClient.dispose();
 });
 
 const handleLogout = () => {
-  if (socket) {
-    socket.disconnect();
-  }
+  if (unsubscribe) unsubscribe();
+  if (wsClient) wsClient.dispose();
   localStorage.removeItem("token");
   localStorage.removeItem("user");
   router.push("/login");
 };
 
-// Add auth headers helper
-const getAuthHeaders = () => ({
-  Authorization: `Bearer ${token.value}`,
+// GraphQL helper
+const graphqlRequest = async (query, variables = {}) => {
+  const res = await fetch("http://localhost:5000/graphql", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token.value}`,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  const json = await res.json();
+  if (json.errors) throw new Error(json.errors[0].message);
+  return json.data;
+};
+
+/* -------------------- TODOS -------------------- */
+
+const formatDateISO = (d) => d.toISOString().split("T")[0];
+const formatDate = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+const formatDateShort = (dateStr) => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+};
+const getDayName = (d) =>
+  ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()];
+
+const weekLabel = computed(() => {
+  const start = days.value[0];
+  const end = days.value[6];
+  return `${formatDate(start)} - ${formatDate(end)}`;
 });
 
-const showInput = ref(false);
-const showDel = ref(false);
-const showUpdate = ref(false);
-
-const newTitle = ref("");
-const todos = ref([]);
-const editingTitle = ref("");
-const editingId = ref(null);
-
-// Week management
-const weekStartDate = ref(new Date());
-const selectedDayIndex = ref(0);
-
 const days = computed(() => {
-  const daysArray = [];
+  const arr = [];
   for (let i = 0; i < 7; i++) {
     const date = new Date(weekStartDate.value);
     date.setDate(date.getDate() + i);
-    daysArray.push(date);
+    arr.push(date);
   }
-  return daysArray;
+  return arr;
 });
 
 const selectedDay = computed(() => days.value[selectedDayIndex.value]);
 
-const weekLabel = computed(() => {
-  const start = formatDate(days.value[0]);
-  const end = formatDate(days.value[6]);
-  return `${start} - ${end}`;
-});
+const selectDay = (index) => {
+  selectedDayIndex.value = index;
+};
+
+const getTodosForDay = (date) => {
+  const targetDateStr = date.toISOString().split("T")[0];
+
+  return todos.value.filter((t) => {
+    if (!t.startDate) return false;
+    const todoDateStr = t.startDate.split("T")[0]; // ignore time
+    return todoDateStr === targetDateStr;
+  });
+};
+
+
 
 const currentDayTodos = computed({
   get: () => getTodosForDay(selectedDay.value),
   set: (newValue) => {
     const dateStr = formatDateISO(selectedDay.value);
-    todos.value = todos.value.filter((t) => t.todoDate !== dateStr);
+    todos.value = todos.value.filter((t) => {
+      if (!t.startDate) return true;
+      return new Date(t.startDate).toISOString().split("T")[0] !== dateStr;
+    });
     todos.value.push(...newValue);
   },
 });
 
-// Helper functions
-const formatDate = (date) => {
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  return `${month}/${day}`;
+const saveOrder = () => {
+  console.log("Order saved");
 };
 
-const formatDateISO = (date) => {
-  return date.toISOString().split("T")[0];
+// Fetch todos with subtasks
+const fetchTodos = async () => {
+  try {
+    const query = `
+      query GetTodos {
+        todos {
+          id
+          title
+          description
+          status
+          startDate
+          priority
+          subtasks {
+            id
+            title
+            status
+            priority
+          }
+        }
+      }
+    `;
+    const data = await graphqlRequest(query);
+    todos.value = data.todos;
+  } catch (e) {
+    console.error("Fetch todos error:", e.message);
+  }
 };
 
-const getDayName = (date) => {
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  return days[date.getDay()];
+// CRUD operations
+const addTodo = async () => {
+  if (!newTitle.value.trim()) {
+    alert("Title required");
+    return;
+  }
+
+  const dateStr = selectedDay.value.toISOString().split("T")[0];
+
+  try {
+    const query = `
+      mutation CreateTodo($input: AddTodoInput!) {
+        createTodo(input: $input) {
+          id
+          title
+          description
+          status
+          startDate
+          priority
+        }
+      }
+    `;
+    const variables = {
+      input: { 
+        title: newTitle.value, 
+        status: "TODO",
+        startDate: dateStr 
+      },
+    };
+    const data = await graphqlRequest(query, variables);
+
+    // Push to local list
+    todos.value.push(data.createTodo);
+
+    // Reset input
+    newTitle.value = "";
+    showInput.value = false;
+
+    // Optionally: refetch from server to ensure consistency
+    // await fetchTodos();
+  } catch (e) {
+    alert(e.message);
+  }
 };
 
-const getTodosForDay = (date) => {
-  const dateStr = formatDateISO(date);
-  return todos.value.filter((todo) => todo.todoDate === dateStr);
+
+const delTodo = async (id) => {
+  try {
+    const query = `
+      mutation DeleteTodo($id: ID!) {
+        deleteTodo(id: $id)
+      }
+    `;
+    await graphqlRequest(query, { id });
+    todos.value = todos.value.filter((t) => t.id !== id);
+    showDel.value = false;
+  } catch (e) {
+    alert(e.message);
+  }
 };
 
-// Navigation
-const selectDay = (index) => {
-  selectedDayIndex.value = index;
-  showInput.value = false;
-  showDel.value = false;
-  showUpdate.value = false;
+const toggleDone = async (id) => {
+  const todo = todos.value.find((t) => t.id === id);
+  const newStatus = todo.status === "DONE" ? "TODO" : "DONE";
+  
+  const query = `
+    mutation UpdateTodo($input: UpdateTodoInput!) {
+      updateTodo(input: $input) {
+        id
+        title
+        description
+        status
+        startDate
+        priority
+      }
+    }
+  `;
+  const variables = { 
+    input: { 
+      id, 
+      status: newStatus
+    } 
+  };
+  const data = await graphqlRequest(query, variables);
+
+  const idx = todos.value.findIndex((t) => t.id === id);
+  if (idx !== -1) {
+    todos.value[idx] = { ...todos.value[idx], ...data.updateTodo };
+  }
 };
 
-const previousWeek = () => {
-  const newDate = new Date(weekStartDate.value);
-  newDate.setDate(newDate.getDate() - 7);
-  weekStartDate.value = newDate;
-  fetchTodos();
-};
-
-const nextWeek = () => {
-  const newDate = new Date(weekStartDate.value);
-  newDate.setDate(newDate.getDate() + 7);
-  weekStartDate.value = newDate;
-  fetchTodos();
-};
-
-// CRUD operations with auth
 const startEdit = (todo) => {
   editingId.value = todo.id;
   editingTitle.value = todo.title;
@@ -372,245 +541,394 @@ const startEdit = (todo) => {
 
 const saveEdit = async (id) => {
   try {
-    const updatedTodo = await $fetch(`http://localhost:5000/api/todos/${id}`, {
-      method: "PUT",
-      headers: getAuthHeaders(),
-      body: { title: editingTitle.value },
-    });
-
-    const index = todos.value.findIndex((t) => t.id === id);
-    if (index !== -1) todos.value[index] = updatedTodo;
-
-    editingId.value = null;
-    editingTitle.value = "";
-  } catch (error) {
-    if (error?.statusCode === 401) {
-      alert("Session expired. Please login again.");
-      handleLogout();
-    } else {
-      console.error(error);
-      alert("Update failed.");
-    }
-  }
-};
-
-const toggleDone = async (todoId) => {
-  const todoItem = todos.value.find((t) => t.id === todoId);
-  if (!todoItem) return;
-
-  try {
-    const updatedTodo = await $fetch(
-      `http://localhost:5000/api/todos/${todoId}`,
-      {
-        method: "PUT",
-        headers: getAuthHeaders(),
-        body: { ...todoItem, done: !todoItem.done },
+    const query = `
+      mutation UpdateTodo($input: UpdateTodoInput!) {
+        updateTodo(input: $input) {
+          id
+          title
+          description
+          status
+          startDate
+          priority
+        }
       }
-    );
-
-    const index = todos.value.findIndex((t) => t.id === todoId);
-    if (index !== -1) todos.value[index] = updatedTodo;
-  } catch (error) {
-    if (error?.statusCode === 401) {
-      alert("Session expired. Please login again.");
-      handleLogout();
-    } else {
-      console.error(error);
-      alert("Toggle failed.");
+    `;
+    const variables = { 
+      input: { 
+        id, 
+        title: editingTitle.value
+      } 
+    };
+    const data = await graphqlRequest(query, variables);
+    const idx = todos.value.findIndex((t) => t.id === id);
+    if (idx !== -1) {
+      todos.value[idx] = { ...todos.value[idx], ...data.updateTodo };
     }
+    editingId.value = null;
+    showUpdate.value = false;
+  } catch (e) {
+    alert(e.message);
   }
 };
 
-const fetchTodos = async () => {
+// Description functions
+const startEditDescription = (todo) => {
+  editingDescId.value = todo.id;
+  editingDescription.value = todo.description || "";
+};
+
+const saveDescription = async (todoId) => {
   try {
-    const data = await $fetch("http://localhost:5000/api/todos/week", {
-      headers: getAuthHeaders(),
-    });
-    todos.value = data;
-  } catch (error) {
-    if (error?.statusCode === 401) {
-      alert("Session expired. Please login again.");
-      handleLogout();
-    } else {
-      console.error("Fetch todos error:", error);
+    const query = `
+      mutation AddDescription($input: AddDescriptionInput!) {
+        addDescription(input: $input) {
+          id
+          title
+          description
+          status
+          startDate
+          priority
+        }
+      }
+    `;
+    const variables = {
+      input: {
+        todoId,
+        description: editingDescription.value
+      }
+    };
+    const data = await graphqlRequest(query, variables);
+    const idx = todos.value.findIndex((t) => t.id === todoId);
+    if (idx !== -1) {
+      todos.value[idx] = { ...todos.value[idx], ...data.addDescription };
     }
+    editingDescId.value = null;
+    editingDescription.value = "";
+    showDescription.value = false;
+  } catch (e) {
+    alert(e.message);
   }
 };
 
-const addTodo = async () => {
-  if (!newTitle.value) return alert("Title required");
+// Subtask functions
+const toggleSubtasks = async (todoId) => {
+  if (expandedTodoId.value === todoId) {
+    expandedTodoId.value = null;
+  } else {
+    expandedTodoId.value = todoId;
+    // Fetch subtasks
+    await fetchSubtasks(todoId);
+  }
+};
 
-  const dateStr = formatDateISO(selectedDay.value);
+const fetchSubtasks = async (parentId) => {
+  try {
+    const query = `
+      query GetSubtasks($parentId: ID!) {
+        subtasks(parentId: $parentId) {
+          id
+          title
+          status
+          priority
+          startDate
+        }
+      }
+    `;
+    const data = await graphqlRequest(query, { parentId });
+    const idx = todos.value.findIndex((t) => t.id === parentId);
+    if (idx !== -1) {
+      todos.value[idx].subtasks = data.subtasks;
+    }
+  } catch (e) {
+    console.error("Fetch subtasks error:", e.message);
+  }
+};
+
+const showSubtaskInput = (todoId) => {
+  addingSubtaskTo.value = todoId;
+  newSubtaskTitle.value = "";
+};
+
+const addSubtask = async (parentId) => {
+  if (!newSubtaskTitle.value.trim()) {
+    alert("Subtask title required");
+    return;
+  }
 
   try {
-    const newTodo = await $fetch("http://localhost:5000/api/todos", {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: {
-        title: newTitle.value,
-        done: false,
-        todoDate: dateStr,
-      },
-    });
-
-    todos.value.push(newTodo);
-    newTitle.value = "";
-    showInput.value = false;
-  } catch (error) {
-    if (error?.statusCode === 401) {
-      alert("Session expired. Please login again.");
-      handleLogout();
-    } else {
-      console.error(error);
-      alert("Add todo failed.");
+    const query = `
+      mutation CreateSubTask($input: CreateSubTaskInput!) {
+        createSubTask(input: $input) {
+          id
+          title
+          status
+          priority
+          startDate
+          parentId
+        }
+      }
+    `;
+    const variables = {
+      input: {
+        parentId,
+        title: newSubtaskTitle.value,
+        status: "TODO"
+      }
+    };
+    const data = await graphqlRequest(query, variables);
+    
+    // Add subtask to parent
+    const idx = todos.value.findIndex((t)=> t.id=== parentId);
+    if(!idx !== -1){
+      todos.value[idx].subtask= [
+        ...(todos.value[idx].subtask || []),
+        data.createSubTask
+      ]
     }
+    
+    newSubtaskTitle.value = "";
+    addingSubtaskTo.value = null;
+  } catch (e) {
+    alert(e.message);
   }
 };
 
-const delTodo = async (id) => {
+const toggleSubtaskDone = async (parentId, subtaskId) => {
+  const parent = todos.value.find((t) => t.id === parentId);
+  const subtask = parent?.subtasks?.find((s) => s.id === subtaskId);
+  if (!subtask) return;
+
+  const newStatus = subtask.status === "DONE" ? "TODO" : "DONE";
+  
   try {
-    await $fetch(`http://localhost:5000/api/todos/${id}`, {
-      method: "DELETE",
-      headers: getAuthHeaders(),
-    });
-
-    todos.value = todos.value.filter((todo) => todo.id !== id);
-    showDel.value = false;
-  } catch (error) {
-    if (error?.statusCode === 401) {
-      alert("Session expired. Please login again.");
-      handleLogout();
-    } else {
-      console.error(error);
-      alert("Delete failed.");
+    const query = `
+      mutation UpdateTodo($input: UpdateTodoInput!) {
+        updateTodo(input: $input) {
+          id
+          title
+          status
+          priority
+        }
+      }
+    `;
+    const variables = {
+      input: {
+        id: subtaskId,
+        status: newStatus
+      }
+    };
+    const data = await graphqlRequest(query, variables);
+    
+    // Update subtask in parent
+    const parentIdx = todos.value.findIndex((t) => t.id === parentId);
+    if (parentIdx !== -1) {
+      const subtaskIdx = todos.value[parentIdx].subtasks.findIndex((s) => s.id === subtaskId);
+      if (subtaskIdx !== -1) {
+        todos.value[parentIdx].subtasks[subtaskIdx] = {
+          ...todos.value[parentIdx].subtasks[subtaskIdx],
+          ...data.updateTodo
+        };
+      }
     }
+  } catch (e) {
+    alert(e.message);
   }
 };
 
-const saveOrder = async () => {
-  console.log("Order saved");
+// Week navigation
+const previousWeek = () => {
+  const d = new Date(weekStartDate.value);
+  d.setDate(d.getDate() - 7);
+  weekStartDate.value = d;
+  fetchTodos();
 };
 
-/* -----------------------------
-   AI Chat (Socket.IO version)
-   ----------------------------- */
+const nextWeek = () => {
+  const d = new Date(weekStartDate.value);
+  d.setDate(d.getDate() + 7);
+  weekStartDate.value = d;
+  fetchTodos();
+};
+
+/* -------------------- AI CHAT -------------------- */
 
 const showChat = ref(false);
 const messages = ref([
   {
     role: "assistant",
-    content:
-      'Сайн байна уу! Би таны todo туслах AI. "10-22нд ус уух" гэх мэт бичээрэй, би todo үүсгэж өгнө. Эсвэл асуулт асуугаарай!',
+    content: "Сайн байна уу! Би таны todo туслах AI. '10-22нд ус уух' гэх мэт бичээрэй, би todo үүсгэж өгнө.",
   },
 ]);
 const userInput = ref("");
 const isLoading = ref(false);
 const unreadCount = ref(0);
 const messagesContainer = ref(null);
-const aiMessageIndex = ref(null);
+const conversationHistory = ref([]);
 
-const initializeSocket = () => {
-  console.log("🔌 Initializing socket connection...");
-  console.log("🔑 Token value:", token.value ? "EXISTS" : "MISSING");
-  
+const initializeWebSocket = () => {
   if (!token.value) {
-    console.error("❌ Cannot initialize socket - no token!");
+    console.error("❌ No token available for WebSocket connection");
     return;
   }
   
-  socket = io("http://localhost:5000", {
-    auth: { token: token.value },
-  });
-
-  socket.on("connect", () => {
-    console.log("✅ Socket connected:", socket.id);
-  });
-
-  socket.on("connect_error", (error) => {
-    console.error("❌ Socket connection error:", error.message);
-  });
-
-  socket.on("disconnect", (reason) => {
-    console.log("🔌 Socket disconnected:", reason);
-  });
-
-  // ===== STREAMING TEXT =====
-  socket.on("ai:text", ({ text }) => {
-    console.log("📝 Received text chunk:", text);
+  try {
+    wsClient = createClient({
+      url: "ws://localhost:5000/graphql",
+      connectionParams: () => {
+        const authToken = token.value || localStorage.getItem("token");
+        return {
+          authorization: `Bearer ${authToken}`,
+        };
+      },
+      shouldRetry: () => true,
+      retryAttempts: 3,
+    });
     
-    if (aiMessageIndex.value !== null) {
-      const msg = messages.value[aiMessageIndex.value];
-      
-      // Initialize or append text
-      if (!msg.content || msg.content === "") {
-        messages.value[aiMessageIndex.value].content = text;
-      } else {
-        messages.value[aiMessageIndex.value].content += text;
+    subscribeToAIMessages();
+  } catch (error) {
+    console.error("❌ Failed to create WebSocket client:", error);
+  }
+};
+
+const subscribeToAIMessages = () => {
+  if (!wsClient) return;
+  
+  try {
+    unsubscribe = wsClient.subscribe(
+      {
+        query: `
+          subscription {
+            aiMessage {
+              type
+              text
+              action
+              todos {
+                id
+                title
+                startDate
+                status
+                priority
+              }
+              deletedIds
+              deletedCount
+              updatedTodos {
+                id
+                title
+                startDate
+                status
+                priority
+              }
+              message
+            }
+          }
+        `,
+      },
+      {
+        next: (response) => {
+          if (response?.errors) {
+            console.error("❌ GraphQL Errors:", response.errors);
+            return;
+          }
+          if (response?.data?.aiMessage) {
+            handleAIMessage(response.data.aiMessage);
+          }
+        },
+        error: (err) => {
+          console.error("❌ Subscription error:", err);
+          isLoading.value = false;
+        },
+        complete: () => console.log("✅ Subscription complete"),
       }
-      
-      console.log("💬 Current message content:", messages.value[aiMessageIndex.value].content);
-      nextTick(() => scrollToBottom());
-    } else {
-      console.warn("⚠️ No aiMessageIndex set!");
+    );
+  } catch (error) {
+    console.error("❌ Failed to subscribe:", error);
+  }
+};
+
+const handleAIMessage = (payload) => {
+  const lastMsg = messages.value[messages.value.length - 1];
+
+  if (payload.type === "TEXT" && payload.text) {
+    if (lastMsg && lastMsg.role === "assistant") {
+      lastMsg.content += payload.text;
+      scrollToBottom();
     }
-  });
+  } else if (payload.type === "DONE") {
+    isLoading.value = false;
 
-  // ===== AI DONE (FINAL RESPONSE) =====
-  socket.on("ai:done", (data) => {
-    console.log("✅ AI Done:", data);
-    
-    if (aiMessageIndex.value === null) {
-      console.warn("⚠️ aiMessageIndex is null in ai:done");
-      return;
-    }
-
-    messages.value[aiMessageIndex.value].content = data.message || "👌";
-
-    // Handle created todos
-    if (data.todos && data.todos.length > 0) {
-      console.log("➕ Adding todos:", data.todos);
-      messages.value[aiMessageIndex.value].todos = data.todos;
-      todos.value.push(...data.todos);
-    }
-
-    // Handle deleted todos
-    if (data.deletedIds && data.deletedIds.length > 0) {
-      console.log("🗑️ Deleting todos:", data.deletedIds);
-      todos.value = todos.value.filter((t) => !data.deletedIds.includes(t.id));
-    }
-
-    // Handle updated todos
-    if (data.updatedTodos && data.updatedTodos.length > 0) {
-      console.log("🔄 Updating todos:", data.updatedTodos);
-      todos.value = todos.value.map((t) => {
-        const updated = data.updatedTodos.find((u) => u.id === t.id);
-        return updated ? updated : t;
+    if (payload.action === "create_todo" && payload.todos) {
+      todos.value.push(...payload.todos);
+      if (lastMsg && lastMsg.role === "assistant") {
+        lastMsg.todos = payload.todos;
+      }
+    } else if (payload.action === "delete_todo" && payload.deletedIds) {
+      todos.value = todos.value.filter((t) => !payload.deletedIds.includes(t.id));
+    } else if (payload.action === "update_todo" && payload.updatedTodos) {
+      payload.updatedTodos.forEach((updated) => {
+        const idx = todos.value.findIndex((t) => t.id === updated.id);
+        if (idx !== -1) {
+          todos.value[idx] = { ...todos.value[idx], ...updated };
+        }
       });
     }
 
-    aiMessageIndex.value = null;
-    isLoading.value = false;
-    nextTick(() => scrollToBottom());
+    conversationHistory.value.push({
+      role: "assistant",
+      content: lastMsg.content || payload.message || "",
+    });
 
-    if (!showChat.value) unreadCount.value++;
+    scrollToBottom();
+  } else if (payload.type === "ERROR") {
+    console.error("❌ AI Error:", payload.message);
+    isLoading.value = false;
+    alert("Error: " + payload.message);
+  }
+};
+
+const sendMessage = async () => {
+  if (!userInput.value.trim() || isLoading.value) return;
+
+  const userMsg = { role: "user", content: userInput.value };
+  messages.value.push(userMsg);
+
+  conversationHistory.value.push({
+    role: "user",
+    content: userInput.value,
   });
 
-  // ===== AI ERROR =====
-  socket.on("ai:error", (data) => {
-    console.error("❌ AI Error:", data);
+  messages.value.push({ role: "assistant", content: "" });
+
+  const messageToSend = userInput.value;
+  userInput.value = "";
+  isLoading.value = true;
+
+  try {
+    const mutation = `
+      mutation SendAIMessage($message: String!, $conversationHistory: [ConversationMessage]) {
+        sendAIMessage(message: $message, conversationHistory: $conversationHistory)
+      }
+    `;
+
+    await graphqlRequest(mutation, {
+      message: messageToSend,
+      conversationHistory: conversationHistory.value,
+    });
+  } catch (e) {
+    console.error("❌ Send message error:", e);
+    isLoading.value = false;
+    alert("Failed to send message: " + e.message);
     
-    if (aiMessageIndex.value === null) {
-      console.warn("⚠️ aiMessageIndex is null in ai:error");
-      return;
+    if (messages.value[messages.value.length - 1]?.content === "") {
+      messages.value.pop();
     }
+  }
 
-    messages.value[aiMessageIndex.value].content =
-      data.message || "Алдаа гарлаа. Дахин оролдоно уу.";
+  scrollToBottom();
+};
 
-    aiMessageIndex.value = null;
-    isLoading.value = false;
-    nextTick(() => scrollToBottom());
-  });
+const quickPrompt = (prompt) => {
+  userInput.value = prompt;
+  sendMessage();
 };
 
 const toggleChat = () => {
@@ -622,59 +940,22 @@ const toggleChat = () => {
 };
 
 const scrollToBottom = () => {
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+  nextTick(() => {
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+    }
+  });
+};
+
+watch(
+  () => messages.value.length,
+  () => {
+    if (!showChat.value) {
+      unreadCount.value++;
+    }
   }
-};
-
-const formatDateShort = (dateStr) => {
-  const date = new Date(dateStr);
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-};
-
-// ===== SEND MESSAGE VIA SOCKET.IO =====
-const sendMessage = () => {
-  if (!userInput.value.trim() || isLoading.value) return;
-
-  const userMessage = userInput.value;
-  console.log("📤 Sending message:", userMessage);
-
-  // Add user message
-  messages.value.push({ role: "user", content: userMessage });
-
-  // Add AI placeholder with EMPTY string
-  aiMessageIndex.value = messages.value.length;
-  messages.value.push({ role: "assistant", content: "", todos: [] });
-  
-  console.log("🎯 Set aiMessageIndex to:", aiMessageIndex.value);
-
-  userInput.value = "";
-  isLoading.value = true;
-  nextTick(() => scrollToBottom());
-
-  const payload = {
-    message: userMessage,
-    conversationHistory: messages.value.slice(1, -1).map((m) => ({
-      role: m.role,
-      content: m.content,
-    })),
-  };
-  
-  console.log("📦 Emitting ai:chat with payload:", payload);
-  socket.emit("ai:chat", payload);
-};
-
-// ===== QUICK PROMPT HELPER =====
-const quickPrompt = (prompt) => {
-  userInput.value = prompt;
-  sendMessage();
-};
-
-watch(showChat, (newVal) => {
-  if (newVal) nextTick(() => scrollToBottom());
-});
+);
 </script>
-
 <style scoped>
 /* ---------- Main app styles ---------- */
 body {
@@ -734,6 +1015,7 @@ h1 {
   color: #333;
   margin-bottom: 20px;
 }
+
 .streaming-cursor {
   display: inline-block;
   animation: blink 1s step-end infinite;
@@ -743,10 +1025,12 @@ h1 {
 }
 
 @keyframes blink {
-  0%, 50% {
+  0%,
+  50% {
     opacity: 1;
   }
-  51%, 100% {
+  51%,
+  100% {
     opacity: 0;
   }
 }
@@ -773,13 +1057,16 @@ h1 {
 }
 
 @keyframes bounce {
-  0%, 80%, 100% {
+  0%,
+  80%,
+  100% {
     transform: scale(0);
   }
   40% {
     transform: scale(1);
   }
 }
+
 .week-navigation {
   display: flex;
   justify-content: space-between;
@@ -1139,30 +1426,10 @@ button:hover {
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-/* ===== STREAMING CURSOR ANIMATION ===== */
 .message-text {
   line-height: 1.4;
   white-space: pre-wrap;
   word-wrap: break-word;
-}
-
-.streaming-cursor {
-  display: inline-block;
-  animation: blink 0.8s infinite;
-  margin-left: 2px;
-  color: #667eea;
-  font-weight: bold;
-}
-
-@keyframes blink {
-  0%,
-  49% {
-    opacity: 1;
-  }
-  50%,
-  100% {
-    opacity: 0;
-  }
 }
 
 .created-todos {
@@ -1181,42 +1448,6 @@ button:hover {
   padding: 4px 0;
   font-size: 14px;
   color: #555;
-}
-
-/* ===== TYPING INDICATOR ===== */
-.typing-indicator {
-  display: flex;
-  gap: 4px;
-  padding: 8px 0;
-}
-
-.typing-indicator span {
-  width: 8px;
-  height: 8px;
-  background: #999;
-  border-radius: 50%;
-  animation: typing-bounce 1.4s infinite ease-in-out;
-}
-
-.typing-indicator span:nth-child(1) {
-  animation-delay: -0.32s;
-}
-
-.typing-indicator span:nth-child(2) {
-  animation-delay: -0.16s;
-}
-
-@keyframes typing-bounce {
-  0%,
-  80%,
-  100% {
-    transform: scale(0);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
 }
 
 .chat-input {
@@ -1311,6 +1542,23 @@ button:hover {
     width: calc(100vw - 40px);
     height: calc(100vh - 120px);
     right: 20px;
+  }
+
+  .days-tabs {
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+  }
+
+  .day-tab {
+    padding: 8px 4px;
+  }
+
+  .day-name {
+    font-size: 10px;
+  }
+
+  .day-date {
+    font-size: 12px;
   }
 }
 </style>

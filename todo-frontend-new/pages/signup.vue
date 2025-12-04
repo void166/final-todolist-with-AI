@@ -1,79 +1,88 @@
 <template>
-    <div class="auth-container">
-      <div class="auth-card">
-        <h1>Sign Up</h1>
-        <form @submit.prevent="handleSignup">
-          <div class="form-group">
-            <label>Email</label>
-            <input
-              v-model="email"
-              type="email"
-              placeholder="Enter your email"
-              required
-            />
-          </div>
-          <div class="form-group">
-            <label>Password</label>
-            <input
-              v-model="password"
-              type="password"
-              placeholder="Create a password"
-              required
-            />
-          </div>
-          <div class="form-group">
-            <label>Confirm Password</label>
-            <input
-              v-model="confirmPassword"
-              type="password"
-              placeholder="Confirm your password"
-              required
-            />
-          </div>
-          <button type="submit" class="submit-btn">Sign Up</button>
-          <p class="toggle-text">
-            Already have an account? 
-            <NuxtLink to="/login">Login</NuxtLink>
-          </p>
-        </form>
-      </div>
+  <div class="auth-container">
+    <div class="auth-card">
+      <h1>Sign Up</h1>
+      <form @submit.prevent="handleSignup">
+        <div class="form-group">
+          <label>Email</label>
+          <input v-model="email" type="email" placeholder="Enter your email" required />
+        </div>
+
+        <div class="form-group">
+          <label>Password</label>
+          <input v-model="password" type="password" placeholder="Create a password" required />
+        </div>
+
+        <div class="form-group">
+          <label>Confirm Password</label>
+          <input v-model="confirmPassword" type="password" placeholder="Confirm your password" required />
+        </div>
+
+        <button type="submit" class="submit-btn">Sign Up</button>
+        <p class="toggle-text">
+          Already have an account? <NuxtLink to="/login">Login</NuxtLink>
+        </p>
+      </form>
     </div>
-  </template>
-  
-  <script setup>
-  import { ref } from 'vue';
-  
-  const email = ref('');
-  const password = ref('');
-  const confirmPassword = ref('');
-  const router = useRouter();
-  
-  const handleSignup = async () => {
-    if (password.value !== confirmPassword.value) {
-      return alert('Passwords do not match!');
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+const email = ref('')
+const password = ref('')
+const confirmPassword = ref('')
+const router = useRouter()
+
+const handleSignup = async () => {
+  if (password.value !== confirmPassword.value) {
+    return alert('Passwords do not match!')
+  }
+
+  if (password.value.length < 6) {
+    return alert('Password must be at least 6 characters')
+  }
+
+  try {
+    const query = `
+      mutation CreateUser($input: AddUserInput!) {
+        createUser(input: $input) {
+          token
+          user {
+            id
+            email
+          }
+        }
+      }
+    `
+
+    const variables = {
+      input: {
+        email: email.value,
+        password: password.value,
+      },
     }
-  
-    if (password.value.length < 6) {
-      return alert('Password must be at least 6 characters');
+
+    const res = await $fetch('http://localhost:5000/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { query, variables },
+    })
+
+    if (res.errors) {
+      throw new Error(res.errors[0].message)
     }
-  
-    try {
-      await $fetch('http://localhost:5000/api/auth/signup', {
-        method: 'POST',
-        body: {
-          email: email.value,
-          password: password.value,
-        },
-      });
-  
-      alert('Signup successful! Please login.');
-      router.push('/login');
-    } catch (error) {
-      alert(error.data?.message || 'Signup failed');
-    }
-  };
-  </script>
-  
+
+    alert('Signup successful! Please login.')
+    router.push('/login')
+  } catch (err) {
+    alert(err.message || 'Signup failed')
+  }
+}
+</script>
+
   <style scoped>
   .auth-container {
     min-height: 100vh;
