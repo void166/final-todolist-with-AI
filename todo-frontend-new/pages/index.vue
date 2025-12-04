@@ -34,7 +34,9 @@
     <div class="header">
       <button class="nemehBt" @click="showInput = !showInput">Нэмэх</button>
       <button class="hasahBt" @click="showDel = !showDel">Хасах</button>
-      <button class="updateBt" @click="showUpdate = !showUpdate">Шинэчлэх</button>
+      <button class="updateBt" @click="showUpdate = !showUpdate">
+        Шинэчлэх
+      </button>
     </div>
 
     <!-- Add Todo Input -->
@@ -112,9 +114,15 @@
     <!-- Embedded AI Chat (bottom-right) -->
     <div class="ai-chat-container">
       <!-- AI Toggle Button -->
-      <button @click="toggleChat" class="ai-toggle-btn" :class="{ active: showChat }">
+      <button
+        @click="toggleChat"
+        class="ai-toggle-btn"
+        :class="{ active: showChat }"
+      >
         🤖 AI Assistant
-        <span v-if="unreadCount > 0" class="unread-badge">{{ unreadCount }}</span>
+        <span v-if="unreadCount > 0" class="unread-badge">{{
+          unreadCount
+        }}</span>
       </button>
 
       <!-- Chat Window -->
@@ -125,7 +133,7 @@
             <button @click="toggleChat" class="close-btn">✕</button>
           </div>
 
-          <!-- ✅ MESSAGES WITH STREAMING CURSOR -->
+          <!-- Messages with streaming cursor -->
           <div class="chat-messages" ref="messagesContainer">
             <div
               v-for="(msg, index) in messages"
@@ -133,29 +141,37 @@
               :class="['message', msg.role]"
             >
               <div class="message-content">
-                <!-- ✅ Text with cursor -->
+                <!-- Text with cursor -->
                 <div class="message-text">
                   {{ msg.content }}
-                  <!-- ✅ Show cursor while streaming -->
-                  <span 
-                    v-if="isLoading && index === messages.length - 1 && msg.content" 
+                  <!-- Show cursor while streaming and content exists -->
+                  <span
+                    v-if="isLoading && index === messages.length - 1 && msg.content.length > 0"
                     class="streaming-cursor"
-                  >▊</span>
+                    >▊</span
+                  >
                 </div>
-                
+
                 <!-- Created todos -->
-                <div v-if="msg.todos && msg.todos.length > 0" class="created-todos">
+                <div
+                  v-if="msg.todos && msg.todos.length > 0"
+                  class="created-todos"
+                >
                   <div class="todos-header">✓ Todo үүслээ:</div>
-                  <div v-for="todo in msg.todos" :key="todo.id" class="todo-item">
+                  <div
+                    v-for="todo in msg.todos"
+                    :key="todo.id"
+                    class="todo-item"
+                  >
                     • {{ todo.title }} ({{ formatDateShort(todo.todoDate) }})
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- ✅ Loading indicator (before text starts) -->
-            <div 
-              v-if="isLoading && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && !messages[messages.length - 1]?.content" 
+            <!-- Loading indicator (before text starts) -->
+            <div
+              v-if="isLoading && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.content.length === 0"
               class="message assistant"
             >
               <div class="message-content">
@@ -186,10 +202,16 @@
 
           <!-- Quick Actions -->
           <div class="quick-actions">
-            <button @click="quickPrompt('Миний todo-нууд юу байна?')" class="quick-btn">
+            <button
+              @click="quickPrompt('Миний todo-нууд юу байна?')"
+              class="quick-btn"
+            >
               📋 Todo харах
             </button>
-            <button @click="quickPrompt('Өнөөдөр юу хийх вэ?')" class="quick-btn">
+            <button
+              @click="quickPrompt('Өнөөдөр юу хийх вэ?')"
+              class="quick-btn"
+            >
               💡 Зөвлөгөө
             </button>
           </div>
@@ -200,44 +222,63 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { useRouter } from "vue-router";
 import draggable from "vuedraggable";
+import { io } from "socket.io-client";
 
 /* -----------------------------
    Auth, Todos (main app)
    ----------------------------- */
 const router = useRouter();
-const token = ref('');
-const userEmail = ref('');
+const token = ref("");
+const userEmail = ref("");
+let socket = null;
 
 // Check authentication on mount
 onMounted(() => {
-  token.value = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  userEmail.value = user.email || '';
+  const storedToken = localStorage.getItem("token");
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  userEmail.value = user.email || "";
 
-  if (!token.value) {
-    router.push('/login');
+  if (!storedToken) {
+    router.push("/login");
     return;
   }
+
+  // ✅ Set token BEFORE initializing socket
+  token.value = storedToken;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   weekStartDate.value = today;
 
   fetchTodos();
+  
+  // ✅ Initialize socket connection AFTER token is set
+  nextTick(() => {
+    initializeSocket();
+  });
+});
+
+onUnmounted(() => {
+  if (socket) {
+    socket.disconnect();
+  }
 });
 
 const handleLogout = () => {
-  localStorage.removeItem('token');
-  localStorage.removeItem('user');
-  router.push('/login');
+  if (socket) {
+    socket.disconnect();
+  }
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  router.push("/login");
 };
 
 // Add auth headers helper
 const getAuthHeaders = () => ({
-  Authorization: `Bearer ${token.value}`
+  Authorization: `Bearer ${token.value}`,
 });
 
 const showInput = ref(false);
@@ -344,11 +385,11 @@ const saveEdit = async (id) => {
     editingTitle.value = "";
   } catch (error) {
     if (error?.statusCode === 401) {
-      alert('Session expired. Please login again.');
+      alert("Session expired. Please login again.");
       handleLogout();
     } else {
       console.error(error);
-      alert('Update failed.');
+      alert("Update failed.");
     }
   }
 };
@@ -358,21 +399,24 @@ const toggleDone = async (todoId) => {
   if (!todoItem) return;
 
   try {
-    const updatedTodo = await $fetch(`http://localhost:5000/api/todos/${todoId}`, {
-      method: "PUT",
-      headers: getAuthHeaders(),
-      body: { ...todoItem, done: !todoItem.done },
-    });
+    const updatedTodo = await $fetch(
+      `http://localhost:5000/api/todos/${todoId}`,
+      {
+        method: "PUT",
+        headers: getAuthHeaders(),
+        body: { ...todoItem, done: !todoItem.done },
+      }
+    );
 
     const index = todos.value.findIndex((t) => t.id === todoId);
     if (index !== -1) todos.value[index] = updatedTodo;
   } catch (error) {
     if (error?.statusCode === 401) {
-      alert('Session expired. Please login again.');
+      alert("Session expired. Please login again.");
       handleLogout();
     } else {
       console.error(error);
-      alert('Toggle failed.');
+      alert("Toggle failed.");
     }
   }
 };
@@ -385,10 +429,10 @@ const fetchTodos = async () => {
     todos.value = data;
   } catch (error) {
     if (error?.statusCode === 401) {
-      alert('Session expired. Please login again.');
+      alert("Session expired. Please login again.");
       handleLogout();
     } else {
-      console.error('Fetch todos error:', error);
+      console.error("Fetch todos error:", error);
     }
   }
 };
@@ -405,7 +449,7 @@ const addTodo = async () => {
       body: {
         title: newTitle.value,
         done: false,
-        todoDate: dateStr
+        todoDate: dateStr,
       },
     });
 
@@ -414,11 +458,11 @@ const addTodo = async () => {
     showInput.value = false;
   } catch (error) {
     if (error?.statusCode === 401) {
-      alert('Session expired. Please login again.');
+      alert("Session expired. Please login again.");
       handleLogout();
     } else {
       console.error(error);
-      alert('Add todo failed.');
+      alert("Add todo failed.");
     }
   }
 };
@@ -434,11 +478,11 @@ const delTodo = async (id) => {
     showDel.value = false;
   } catch (error) {
     if (error?.statusCode === 401) {
-      alert('Session expired. Please login again.');
+      alert("Session expired. Please login again.");
       handleLogout();
     } else {
       console.error(error);
-      alert('Delete failed.');
+      alert("Delete failed.");
     }
   }
 };
@@ -448,20 +492,126 @@ const saveOrder = async () => {
 };
 
 /* -----------------------------
-   AI Chat (embedded)
+   AI Chat (Socket.IO version)
    ----------------------------- */
 
 const showChat = ref(false);
 const messages = ref([
   {
-    role: 'assistant',
-    content: 'Сайн байна уу! Би таны todo туслах AI. "10-22нд ус уух" гэх мэт бичээрэй, би todo үүсгэж өгнө. Эсвэл асуулт асуугаарай!'
-  }
+    role: "assistant",
+    content:
+      'Сайн байна уу! Би таны todo туслах AI. "10-22нд ус уух" гэх мэт бичээрэй, би todo үүсгэж өгнө. Эсвэл асуулт асуугаарай!',
+  },
 ]);
-const userInput = ref('');
+const userInput = ref("");
 const isLoading = ref(false);
 const unreadCount = ref(0);
 const messagesContainer = ref(null);
+const aiMessageIndex = ref(null);
+
+const initializeSocket = () => {
+  console.log("🔌 Initializing socket connection...");
+  console.log("🔑 Token value:", token.value ? "EXISTS" : "MISSING");
+  
+  if (!token.value) {
+    console.error("❌ Cannot initialize socket - no token!");
+    return;
+  }
+  
+  socket = io("http://localhost:5000", {
+    auth: { token: token.value },
+  });
+
+  socket.on("connect", () => {
+    console.log("✅ Socket connected:", socket.id);
+  });
+
+  socket.on("connect_error", (error) => {
+    console.error("❌ Socket connection error:", error.message);
+  });
+
+  socket.on("disconnect", (reason) => {
+    console.log("🔌 Socket disconnected:", reason);
+  });
+
+  // ===== STREAMING TEXT =====
+  socket.on("ai:text", ({ text }) => {
+    console.log("📝 Received text chunk:", text);
+    
+    if (aiMessageIndex.value !== null) {
+      const msg = messages.value[aiMessageIndex.value];
+      
+      // Initialize or append text
+      if (!msg.content || msg.content === "") {
+        messages.value[aiMessageIndex.value].content = text;
+      } else {
+        messages.value[aiMessageIndex.value].content += text;
+      }
+      
+      console.log("💬 Current message content:", messages.value[aiMessageIndex.value].content);
+      nextTick(() => scrollToBottom());
+    } else {
+      console.warn("⚠️ No aiMessageIndex set!");
+    }
+  });
+
+  // ===== AI DONE (FINAL RESPONSE) =====
+  socket.on("ai:done", (data) => {
+    console.log("✅ AI Done:", data);
+    
+    if (aiMessageIndex.value === null) {
+      console.warn("⚠️ aiMessageIndex is null in ai:done");
+      return;
+    }
+
+    messages.value[aiMessageIndex.value].content = data.message || "👌";
+
+    // Handle created todos
+    if (data.todos && data.todos.length > 0) {
+      console.log("➕ Adding todos:", data.todos);
+      messages.value[aiMessageIndex.value].todos = data.todos;
+      todos.value.push(...data.todos);
+    }
+
+    // Handle deleted todos
+    if (data.deletedIds && data.deletedIds.length > 0) {
+      console.log("🗑️ Deleting todos:", data.deletedIds);
+      todos.value = todos.value.filter((t) => !data.deletedIds.includes(t.id));
+    }
+
+    // Handle updated todos
+    if (data.updatedTodos && data.updatedTodos.length > 0) {
+      console.log("🔄 Updating todos:", data.updatedTodos);
+      todos.value = todos.value.map((t) => {
+        const updated = data.updatedTodos.find((u) => u.id === t.id);
+        return updated ? updated : t;
+      });
+    }
+
+    aiMessageIndex.value = null;
+    isLoading.value = false;
+    nextTick(() => scrollToBottom());
+
+    if (!showChat.value) unreadCount.value++;
+  });
+
+  // ===== AI ERROR =====
+  socket.on("ai:error", (data) => {
+    console.error("❌ AI Error:", data);
+    
+    if (aiMessageIndex.value === null) {
+      console.warn("⚠️ aiMessageIndex is null in ai:error");
+      return;
+    }
+
+    messages.value[aiMessageIndex.value].content =
+      data.message || "Алдаа гарлаа. Дахин оролдоно уу.";
+
+    aiMessageIndex.value = null;
+    isLoading.value = false;
+    nextTick(() => scrollToBottom());
+  });
+};
 
 const toggleChat = () => {
   showChat.value = !showChat.value;
@@ -482,182 +632,36 @@ const formatDateShort = (dateStr) => {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 };
 
-// ===== STREAMING SEND MESSAGE =====
-// ===== STREAMING SEND MESSAGE (FIXED) =====
-const sendMessage = async () => {
+// ===== SEND MESSAGE VIA SOCKET.IO =====
+const sendMessage = () => {
   if (!userInput.value.trim() || isLoading.value) return;
 
   const userMessage = userInput.value;
-  
+  console.log("📤 Sending message:", userMessage);
+
   // Add user message
-  messages.value.push({
-    role: 'user',
-    content: userMessage
-  });
+  messages.value.push({ role: "user", content: userMessage });
 
-  // Create AI message placeholder
-  const aiMessageIndex = messages.value.length;
-  messages.value.push({
-    role: 'assistant',
-    content: '',  // Will be filled word-by-word
-    todos: []
-  });
+  // Add AI placeholder with EMPTY string
+  aiMessageIndex.value = messages.value.length;
+  messages.value.push({ role: "assistant", content: "", todos: [] });
+  
+  console.log("🎯 Set aiMessageIndex to:", aiMessageIndex.value);
 
-  userInput.value = '';
+  userInput.value = "";
   isLoading.value = true;
   nextTick(() => scrollToBottom());
 
-  try {
-    // ===== FETCH WITH STREAMING =====
-    const response = await fetch('http://localhost:5000/api/todos/ai/chat/stream', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token.value}`
-      },
-      body: JSON.stringify({
-        message: userMessage,
-        conversationHistory: messages.value.slice(1, -1).map(m => ({
-          role: m.role,
-          content: m.content
-        }))
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    // ===== READ STREAM =====
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      
-      if (done) {
-        console.log('✅ Stream complete');
-        break;
-      }
-
-      // Decode chunk
-      buffer += decoder.decode(value, { stream: true });
-      
-      // Split by lines
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || ''; // Keep incomplete line
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            
-            // ===== WORD BY WORD =====
-            if (data.type === 'text') {
-              messages.value[aiMessageIndex].content += data.content;
-              
-              // Auto-scroll as text appears
-              nextTick(() => scrollToBottom());
-            }
-
-            // ===== DONE - EXECUTE ACTION =====
-            else if (data.type === 'done') {
-              console.log('✅ Action:', data.action);
-              console.log('✅ Data:', data);
-
-              // CREATE TODO
-              if (data.action === 'create_todo' && data.todos?.length > 0) {
-                // ✅ Clear JSON text and show clean message
-                messages.value[aiMessageIndex].content = data.message || `${data.todos.length} todo үүслээ!`;
-                messages.value[aiMessageIndex].todos = data.todos;
-                
-                // Add to main list
-                todos.value = [...todos.value, ...data.todos];
-
-                // Navigate to todo date
-                const firstTodo = data.todos[0];
-                const todoDate = new Date(firstTodo.todoDate);
-                
-                const currentWeekDates = days.value.map(day => formatDateISO(day));
-                const isInCurrentWeek = currentWeekDates.includes(firstTodo.todoDate);
-
-                if (!isInCurrentWeek) {
-                  const newWeekStart = new Date(todoDate);
-                  newWeekStart.setDate(todoDate.getDate() - todoDate.getDay());
-                  weekStartDate.value = newWeekStart;
-                  await fetchTodos();
-                }
-
-                nextTick(() => {
-                  const dayIndex = days.value.findIndex(day => 
-                    formatDateISO(day) === firstTodo.todoDate
-                  );
-                  if (dayIndex !== -1) {
-                    selectedDayIndex.value = dayIndex;
-                  }
-                });
-              }
-
-              // DELETE TODO
-              else if (data.action === 'delete_todo' && data.deletedIds?.length > 0) {
-                // ✅ Clear JSON and show clean message
-                messages.value[aiMessageIndex].content = data.message || `${data.deletedIds.length} todo устгагдлаа`;
-                
-                todos.value = todos.value.filter(t => 
-                  !data.deletedIds.includes(t.id)
-                );
-              }
-
-              // UPDATE TODO
-              else if (data.action === 'update_todo' && data.updatedTodos?.length > 0) {
-                // ✅ Clear JSON and show clean message
-                messages.value[aiMessageIndex].content = data.message || `${data.updatedTodos.length} todo шинэчлэгдлээ`;
-                
-                todos.value = todos.value.map(t => {
-                  const updated = data.updatedTodos.find(u => u.id === t.id);
-                  return updated ? updated : t;
-                });
-              }
-
-              // REPLY
-              else if (data.action === 'reply') {
-                // ✅ Replace JSON with actual message
-                if (data.message) {
-                  messages.value[aiMessageIndex].content = data.message;
-                }
-              }
-            }
-
-            // ===== ERROR =====
-            else if (data.type === 'error') {
-              messages.value[aiMessageIndex].content = 
-                `❌ Алдаа: ${data.message}`;
-            }
-
-          } catch (parseError) {
-            console.error('Parse error:', parseError, 'Line:', line);
-          }
-        }
-      }
-    }
-
-    // Unread notification
-    if (!showChat.value) {
-      unreadCount.value++;
-    }
-
-  } catch (error) {
-    console.error('❌ Streaming error:', error);
-    
-    if (messages.value[aiMessageIndex]) {
-      messages.value[aiMessageIndex].content = 
-        'Уучлаарай, холболт тасарлаа. Дахин оролдоно уу.';
-    }
-  } finally {
-    isLoading.value = false;
-    nextTick(() => scrollToBottom());
-  }
+  const payload = {
+    message: userMessage,
+    conversationHistory: messages.value.slice(1, -1).map((m) => ({
+      role: m.role,
+      content: m.content,
+    })),
+  };
+  
+  console.log("📦 Emitting ai:chat with payload:", payload);
+  socket.emit("ai:chat", payload);
 };
 
 // ===== QUICK PROMPT HELPER =====
@@ -667,9 +671,7 @@ const quickPrompt = (prompt) => {
 };
 
 watch(showChat, (newVal) => {
-  if (newVal) {
-    nextTick(() => scrollToBottom());
-  }
+  if (newVal) nextTick(() => scrollToBottom());
 });
 </script>
 
@@ -732,7 +734,52 @@ h1 {
   color: #333;
   margin-bottom: 20px;
 }
+.streaming-cursor {
+  display: inline-block;
+  animation: blink 1s step-end infinite;
+  color: #007bff;
+  font-weight: bold;
+  margin-left: 2px;
+}
 
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+}
+
+.typing-indicator span {
+  width: 8px;
+  height: 8px;
+  background: #999;
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.typing-indicator span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
 .week-navigation {
   display: flex;
   justify-content: space-between;
@@ -1108,11 +1155,13 @@ button:hover {
 }
 
 @keyframes blink {
-  0%, 49% { 
-    opacity: 1; 
+  0%,
+  49% {
+    opacity: 1;
   }
-  50%, 100% { 
-    opacity: 0; 
+  50%,
+  100% {
+    opacity: 0;
   }
 }
 
@@ -1158,7 +1207,9 @@ button:hover {
 }
 
 @keyframes typing-bounce {
-  0%, 80%, 100% {
+  0%,
+  80%,
+  100% {
     transform: scale(0);
     opacity: 0.5;
   }
@@ -1239,7 +1290,8 @@ button:hover {
 }
 
 /* Animations */
-.slide-enter-active, .slide-leave-active {
+.slide-enter-active,
+.slide-leave-active {
   transition: all 0.3s ease;
 }
 
@@ -1261,5 +1313,4 @@ button:hover {
     right: 20px;
   }
 }
-
 </style>

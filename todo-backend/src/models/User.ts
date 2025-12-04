@@ -1,4 +1,4 @@
-import { Optional, DataType, Model, DataTypes, UUIDV4 } from "sequelize";
+import { Optional, Model, DataTypes, UUIDV4 } from "sequelize";
 import sequelize from "../config/db";
 
 export interface userAttributes{
@@ -9,7 +9,7 @@ export interface userAttributes{
     updatedAt?: Date;
 }
 
-interface userCreationAttributes extends Optional<userAttributes,"id"| "createdAt"| "updatedAt">{}
+ interface userCreationAttributes extends Optional<userAttributes,"id"| "createdAt"| "updatedAt">{}
 
 export class User extends Model <userAttributes, userCreationAttributes> implements userAttributes{
     public id!: string;

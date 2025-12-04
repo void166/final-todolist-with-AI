@@ -1,280 +1,229 @@
 import { Response, Request } from "express";
+import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config";
-import { parse } from "dotenv";
-import Anthropic from '@anthropic-ai/sdk';
-import { Stream } from "@anthropic-ai/sdk/core/streaming.js";
+import { Socket } from "socket.io";
+import { Todo } from "../models/Todo";
 
-const {ANTHROPIC_API_KEY} = config;
+const { ANTHROPIC_API_KEY } = config;
 
 const anthropic = new Anthropic({
-  apiKey: ANTHROPIC_API_KEY
+  apiKey: ANTHROPIC_API_KEY,
 });
 
-export class AiController{
-  async chatWithAI(req:Request, res:Response){
-    try{
+export class AiController {
+  static async chatWithAI(socket: Socket, payload: any) {
+    console.log("chatWithAI called");
+    console.log("Payload received:", payload);
+    console.log("Socket.data.userId:", socket.data.userId);
 
-    
-    const { message, conversationHistory} = req.body;
+    try {
+      const { message, conversationHistory } = payload;
 
-    if(!message)
-      return res.status(400).json({
-        success: false,
-        message: "Message ee oruuldaggumu naiza?"
-    });
+      const userId = socket.data.userId;
 
-    //hereglegchiin todonuudiig awah
-    const {Todo} = await import('../models/Todo');
-    const userTodos = await Todo.findAll({
-      where: {
-        userId: req.userId
-      },
-      order: [["todoDate", "ASC"]],
-      limit: 20
-    });
+      console.log("UserId:", userId);
+      console.log("Message:", message);
 
-    const today = new Date().toISOString().split('T')[0];
-    const tommorrow = new Date(Date.now() + 86000000).toISOString().split('T')[0];
-
-
-    const systemPrompt = `Та хэрэглэгчийн Todo list туслах юм. Та 4 зүйл хийж чадна
-      1. "Todo үүсгэх" хэрэглэгч todo нэмхийг хүсвэл JSON утга буцаа:
-
-      {
-        "action": "create_todo",
-        "todos":[
-          {
-            "title": "ус уух",
-            "todoDate": "2025-10-22"
-          }
-        ]
+      if (!message) {
+        console.log("Message is empty");
+        socket.emit("ai:error", {
+          message: "Message hooson baina juu",
+        });
+        return;
       }
-      2. "Todo устгах" хэрэглэгч todo устгахийг хүсвэл JSON утга буцаа:
 
-      {
-        "action": "delete_todo",
-        "todos":[
-          {
-            "title": "ус уух",
-            "todoDate": "2025-10-22"
-          }
-        ]
+      if (!userId) {
+        console.log("UserId is missing");
+        socket.emit("ai:error", {
+          message: "User not authenticated",
+        });
+        return;
       }
-      3. "Todo шинэчлэх" хэрэглэгч todo шинэчлэхийг хүсвэл JSON утга буцаа:
 
-      {
-        "action": "update_todo",
-        "todos":[
-          {
-            "id": 42,
-            "title": "ус уух",
-            "todoDate": "2025-10-22",
-            "done": false
-          } 
-        ]
-      }
-      4. "Хариулт өгөх" хэрэглэгчийн  ердийн асуултанд хариулах:
-        {
-          "action": "reply",
-          "message": "Таны хариулт"
-        }
+
+      const userTodos = await Todo.findAll({
+        where: { userId },
+        order: [["todoDate", "ASC"]],
+        limit: 20,
+      });
+
+      console.log("User todos loaded:", userTodos.length);
+
+      const today = new Date().toISOString().split("T")[0];
+      const tomorrow = new Date(Date.now() + 86400000)
+        .toISOString()
+        .split("T")[0];
+
+      const systemPrompt = `
+You are Todo assistant for the user. Handle 4 actions.
+
+Today: ${today}
+Tomorrow: ${tomorrow}
+Одоогийн Todo List:
+${
+  userTodos.length > 0
+    ? userTodos
+        .map(
+          (t) =>
+            `id: ${t.id}, title: ${t.title}, date: ${t.todoDate}, done: ${t.done}`
+        )
+        .join("\n")
+    : "Одоогоор Todo байхгүй байна"
+}
       
+Examples:
+- "Add water reminder for tomorrow":
+{"action":"create_todo","todos":[{"title":"Water","todoDate":"${tomorrow}"}]}
 
+- "Delete water reminder for tomorrow":
+{"action":"delete_todo","todos":[{"title":"Water","todoDate":"${tomorrow}"}]}
+ a
+- "What are my todos?":
+{"action":"reply","message":"You have ..."}
 
-      Одоогийн Todo List:
+- "Update todo":
+{"action":"update_todo","todos":[{"id":42,"title":"Water","todoDate":"${tomorrow}","done":false}]}
+`;
 
-      ${
-        userTodos.length >0
-          ? userTodos.map(t=>`id: ${t.id}, title: ${t.title}, date: ${t.todoDate}, done: ${t.done}`).join('\n')
-          : 'Одоогоор Todo байхгүй байна'
-      }
+      console.log("🚀 Starting Claude stream...");
 
-
-      Өнөөдрийн Огноо: ${today}
-      Маргаашийн Огноо: ${tommorrow}
-
-      Огноог ойлгох
-
-      -- Маргааш: ${tommorrow}
-      -- 10/23, 10-23 = 2025-10-23
-      -- Огноог заавал YYYY-MM-DD форматаар бич
-      -- Он заагаагүй бол 2025 гэж ойлго
-
-
-      Жишээ:
-        User: "Маргааш ус уух"
-        {action: "create_todo", todos: [{"title": "Ус уух", "todoDate": ${tommorrow}]} }
-
-        User: "Миний todo нүүд юу байна"
-        {action: "reply", message: "танд одоогоор ийм todo нүүд байна }
-
-        User: "маргаашийн todo-г устгах"
-        {"action": "delete_todo", "todos": [{"title": "Ус уух", "todoDate": "${tommorrow}"}]}
-      
-      ЗӨВХӨН JSON буцаа, өөр юм битгий бич!`;
-
-      console.log('User message', message);
-
-
-
-
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-Cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-accel-buffering', 'no');
-
-      //claude model duudah
-
-      const stream  = await anthropic.messages.stream({
-        model: 'claude-sonnet-4-20250514',
+      const completion = await anthropic.messages.stream({
+        model: "claude-sonnet-4-20250514",
         max_tokens: 2048,
         system: systemPrompt,
+        stream: true,
         messages: [
-          ...conversationHistory || [],
-          {
-            role: "user",
-            content: message,
-          },
+          ...(conversationHistory || []),
+          { role: "user", content: message },
         ],
       });
 
-      let fullResponse = '';
-        for await (const chunk of stream){
-          if(chunk.type === 'content_block_delta' && chunk.delta.type=== 'text_delta'){
-            const text = chunk.delta.text;
-            fullResponse +=text;
+      let fullResponse = "";
+      for await (const chunk of completion) {
+        if (
+          chunk.type === "content_block_delta" &&
+          chunk.delta.type === "text_delta"
+        ) {
+          const text = chunk.delta.text;
+          fullResponse += text;
 
-            res.write(`data: ${JSON.stringify({
-              type: 'text',
-              content: text
-            })}\n\n`);
-          }
+          console.log("Streaming chunk:", text);
+          socket.emit("ai:text", { text });
         }
+      }
 
-        console.log('full Response: ', fullResponse);
-
-
+      console.log("Full response:", fullResponse);
 
       const jsonMatch = fullResponse.match(/\{[\s\S]*\}/);
 
-      if(!jsonMatch){
-        res.write(`data: ${JSON.stringify({
-          type: 'done',
-          action: 'reply',
-          message: fullResponse
-        })}\n\n`);
-        return res.end();
+      if (!jsonMatch) {
+        console.log("No JSON found, sending as reply");
+        socket.emit("ai:done", {
+          action: "reply",
+          message: fullResponse,
+        });
+        return;
       }
 
-      const parsed = JSON.parse(jsonMatch[0]);
-      console.log("parsed: ", parsed);
-      console.log("parsed actions", parsed.action);
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+        console.log("Parsed JSON:", parsed);
+      } catch (parseError) {
+        console.error("JSON parse error:", parseError);
+        socket.emit("ai:done", {
+          action: "reply",
+          message: fullResponse,
+        });
+        return;
+      }
 
-      if(parsed.action === "create_todo" && parsed.todos?.length > 0){
-
+      if (parsed.action === "create_todo" && parsed.todos?.length > 0) {
+        console.log("➕ Creating todos:", parsed.todos);
         const createdTodos = await Promise.all(
-          parsed.todos.map(async (todo: any)=>{
+          parsed.todos.map(async (todo: any) => {
             const newTodo = await Todo.create({
               title: todo.title,
               todoDate: todo.todoDate,
               done: false,
-              userId: req.userId!
+              userId,
             });
-
             return newTodo.toJSON();
           })
-        )
-
-        console.log("created Todo",createdTodos);
-
-        res.write(`data: ${JSON.stringify({
-          type: 'done',
-          action: 'create_todo',
+        );
+        console.log("Todos created:", createdTodos);
+        socket.emit("ai:done", {
+          action: "create_todo",
           todos: createdTodos,
-          message: `${createdTodos.length} todo uuslee bro`
-        })}\n\n`);
-        return res.end();
-
-      }else if(parsed.action === "delete_todo" && parsed.todos?.length > 0){
-        console.log("deleting todos: ", parsed.todos);
-      
+          message: `${createdTodos.length} todos created`,
+        });
+      } else if (parsed.action === "delete_todo" && parsed.todos?.length > 0) {
+        console.log("Deleting todos:", parsed.todos);
         const deleteResults = await Promise.all(
           parsed.todos.map(async (todo: any) => {
             const foundTodo = await Todo.findOne({
               where: {
                 title: todo.title,
                 todoDate: todo.todoDate,
-                userId: req.userId,
-              }
+                userId,
+              },
             });
-      
             if (foundTodo) {
               const todoId = foundTodo.id;
-              await foundTodo.destroy(); 
+              await foundTodo.destroy();
               return todoId;
             }
-      
             return null;
           })
         );
-      
-        const deletedIds = deleteResults.filter(id => id !== null);
-        console.log("deleted ids", deletedIds);
 
-        res.write(`data: ${JSON.stringify({
-          type: 'done',
-          action: 'delete_todo',
+        const deletedIds = deleteResults.filter((id) => id !== null);
+        console.log("Todos deleted:", deletedIds);
+
+        socket.emit("ai:done", {
+          action: "delete_todo",
           deletedIds,
           deletedCount: deletedIds.length,
-          message: `${deletedIds.length} todo ustlaa` 
-        })}\n\n`)
-        return res.end();
-
-      }
-      else if(parsed.action === 'update_todo' && parsed.todos?.length>0){
-        console.log("shinechlegdeh todo: ", parsed.todo);
-
+          message: `${deletedIds.length} deleted`,
+        });
+      } else if (parsed.action === "update_todo" && parsed.todos?.length > 0) {
+        console.log("Updating todos:", parsed.todos);
         const updatedTodos = await Promise.all(
-          parsed.todos.map(async (todoData:any)=>{
-             const todo = await Todo.findOne({
-              where:{
-                id: todoData.id,
-                userId: req.userId
-              }
-             })
+          parsed.todos.map(async (todoData: any) => {
+            const todo = await Todo.findOne({
+              where: { id: todoData.id, userId },
+            });
+            if (!todo) return null;
 
-             if(!todo)
-              return res.status(400).json({success: false, message: "todo oldsongui"});
-
-             if(todoData.title !== undefined) 
-              todo.title = todoData.title;
-            if(todoData.todoDate !== undefined)
+            if (todoData.title !== undefined) todo.title = todoData.title;
+            if (todoData.todoDate !== undefined)
               todo.todoDate = todoData.todoDate;
-            if(todoData.done !== undefined)
-              todo.done = todoData.done;
-
+            if (todoData.done !== undefined) todo.done = todoData.done;
 
             await todo.save();
             return todo.toJSON();
           })
         );
-        res.write(`data: ${JSON.stringify({
-          type: 'done',
-          action: 'update_todo',
-          updatedTodos,
-          message: `${updatedTodos.length} todo shinechlegdelee`
-        })}\n\n`)
-        return res.end();
-      }else{
-        res.write(`data: ${JSON.stringify({
-          type: 'done',
-          action: 'reply',
-          message: parsed.message || fullResponse
-        })}\n\n`)
-        return res.end();
+
+        const filteredTodos = updatedTodos.filter((t) => t !== null);
+        console.log("Todos updated:", filteredTodos);
+
+        socket.emit("ai:done", {
+          action: "update_todo",
+          updatedTodos: filteredTodos,
+          message: `${filteredTodos.length} todo shinechlegdlee`,
+        });
+      } else {
+        console.log("Sending reply");
+        socket.emit("ai:done", {
+          action: "reply",
+          message: parsed.message || fullResponse,
+        });
       }
-    }catch(error: any){
-      res.status(500).json({success: false, message: error. message});
+    } catch (error: any) {
+      console.error("AI Chat Error:", error);
+      console.error("Error stack:", error.stack);
+      socket.emit("ai:error", { message: error.message || "Unknown error" });
     }
   }
 }

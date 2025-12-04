@@ -1,7 +1,7 @@
 export interface CreateTodoDTO{
     title: string;
     done?: boolean;
-    todoDate: string;
+    todoDate?: string;
 }
 
 export interface UpdateTodoDTO{
