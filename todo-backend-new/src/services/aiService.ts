@@ -8,7 +8,10 @@ const { ANTHROPIC_API_KEY } = config;
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
 class AiService {
-  async chatWithAI(userId: string, payload: { message: string, conversationHistory?: any[] }) {
+  async chatWithAI(
+    userId: string,
+    payload: { message: string; conversationHistory?: any[] }
+  ) {
     const { message, conversationHistory } = payload;
     if (!message) {
       return this.publish(userId, "ERROR", { message: "Message is empty" });
@@ -24,7 +27,7 @@ class AiService {
       const today = new Date().toISOString().split("T")[0];
       const systemPrompt = this.buildSystemPrompt(today, todos);
 
-      const completion = await anthropic.messages.stream({
+      const completion = anthropic.messages.stream({
         model: "claude-3-5-haiku-20241022",
         max_tokens: 1024,
         system: systemPrompt,
@@ -37,11 +40,14 @@ class AiService {
       let fullResponse = "";
 
       for await (const chunk of completion) {
-        if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+        if (
+          chunk.type === "content_block_delta" &&
+          chunk.delta.type === "text_delta"
+        ) {
           const text = chunk.delta.text;
           fullResponse += text;
-          console.log(text)
-          console.log(fullResponse)
+          console.log(text);
+          console.log(fullResponse);
 
           // Publish text chunk to subscription
           await this.publish(userId, "TEXT", { text });
@@ -51,14 +57,18 @@ class AiService {
       const parsed = this.parseAiResponse(fullResponse);
 
       if (!parsed.json) {
-        return this.publish(userId, "DONE", { action: "reply", message: parsed.message });
+        return this.publish(userId, "DONE", {
+          action: "reply",
+          message: parsed.message,
+        });
       }
 
       await this.handleAiAction(userId, parsed.json, parsed.message);
-
     } catch (error) {
       console.error("AI Service Error:", error);
-      await this.publish(userId, "ERROR", { message: "Something went wrong with the AI service." });
+      await this.publish(userId, "ERROR", {
+        message: "Something went wrong with the AI service.",
+      });
     }
   }
 
@@ -74,7 +84,8 @@ class AiService {
   private parseAiResponse(response: string) {
     const jsonStart = response.indexOf("{");
     const jsonEnd = response.lastIndexOf("}");
-    if (jsonStart === -1 || jsonEnd === -1) return { message: response, json: null };
+    if (jsonStart === -1 || jsonEnd === -1)
+      return { message: response, json: null };
 
     const jsonString = response.substring(jsonStart, jsonEnd + 1);
     const friendlyMessage = response.substring(0, jsonStart).trim();
@@ -87,26 +98,42 @@ class AiService {
     }
   }
 
-  private async handleAiAction(userId: string, actionData: any, friendlyMessage: string) {
+  private async handleAiAction(
+    userId: string,
+    actionData: any,
+    friendlyMessage: string
+  ) {
     const { action, todos } = actionData;
 
     if (action === "create_todo" && todos?.length > 0) {
-      const created = await Promise.all(todos.map(async (t: any) => {
-        const todo = await Todo.create({ ...t, userId, done: false });
-        return todo.toJSON();
-      }));
-      return this.publish(userId, "DONE", { action, todos: created, message: friendlyMessage });
+      const created = await Promise.all(
+        todos.map(async (t: any) => {
+          const todo = await Todo.create({ ...t, userId, done: false });
+          return todo.toJSON();
+        })
+      );
+      return this.publish(userId, "DONE", {
+        action,
+        todos: created,
+        message: friendlyMessage,
+      });
     }
 
     if (action === "update_todo" && todos?.length > 0) {
-      const updated = await Promise.all(todos.map(async (t: any) => {
-        const todo = await Todo.findOne({ where: { id: t.id, userId } });
-        if (!todo) return null;
-        Object.assign(todo, t);
-        await todo.save();
-        return todo.toJSON();
-      }));
-      return this.publish(userId, "DONE", { action, updatedTodos: updated.filter(Boolean), message: friendlyMessage });
+      const updated = await Promise.all(
+        todos.map(async (t: any) => {
+          const todo = await Todo.findOne({ where: { id: t.id, userId } });
+          if (!todo) return null;
+          await Object.assign(todo, t);
+          await todo.save();
+          return todo.toJSON();
+        })
+      );
+      return this.publish(userId, "DONE", {
+        action,
+        updatedTodos: updated.filter(Boolean),
+        message: friendlyMessage,
+      });
     }
 
     if (action === "delete_todo" && todos?.length > 0) {
@@ -118,16 +145,30 @@ class AiService {
           await todo.destroy();
         }
       }
-      return this.publish(userId, "DONE", { action, deletedIds, deletedCount: deletedIds.length, message: friendlyMessage });
+      return this.publish(userId, "DONE", {
+        action,
+        deletedIds,
+        deletedCount: deletedIds.length,
+        message: friendlyMessage,
+      });
     }
 
-    return this.publish(userId, "DONE", { action: "reply", message: friendlyMessage });
+    return this.publish(userId, "DONE", {
+      action: "reply",
+      message: friendlyMessage,
+    });
   }
 
   private buildSystemPrompt(today: string, todos: any[]) {
-    const todoList = todos.length > 0
-      ? todos.map(t => `id: ${t.id}, title: ${t.title}, date: ${t.startDate}, done: ${t.done}`).join("\n")
-      : "No active todos.";
+    const todoList =
+      todos.length > 0
+        ? todos
+            .map(
+              (t) =>
+                `id: ${t.id}, title: ${t.title}, date: ${t.startDate}, done: ${t.done}`
+            )
+            .join("\n")
+        : "No active todos.";
 
     return `
 You are a helpful Todo assistant. Respond in Mongolian.
