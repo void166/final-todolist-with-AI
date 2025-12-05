@@ -9,6 +9,43 @@
       </div>
     </div>
 
+    <!-- Projects Section -->
+    <div class="projects-section">
+      <div class="projects-header">
+        <h3>📁 Projects</h3>
+        <button @click="showProjectInput = !showProjectInput" class="add-project-btn">
+          {{ showProjectInput ? '✕' : '+ Project' }}
+        </button>
+      </div>
+
+      <div v-if="showProjectInput" class="add-project-form">
+        <input
+          v-model="newProjectName"
+          @keyup.enter="createProject"
+          placeholder="Шинэ project нэр..."
+          class="project-input"
+        />
+        <button @click="createProject" class="ok-button">Үүсгэх</button>
+      </div>
+
+      <div class="projects-list">
+        <button
+          @click="selectedProjectId = null"
+          :class="['project-chip', { active: selectedProjectId === null }]"
+        >
+          🏠 Бүх Todo
+        </button>
+        <button
+          v-for="project in projects"
+          :key="project.id"
+          @click="selectedProjectId = project.id"
+          :class="['project-chip', { active: selectedProjectId === project.id }]"
+        >
+          📁 {{ project.name }}
+        </button>
+      </div>
+    </div>
+
     <!-- Week Navigation -->
     <div class="week-navigation">
       <button @click="previousWeek" class="nav-button">← Previous Week</button>
@@ -36,22 +73,64 @@
       <button class="hasahBt" @click="showDel = !showDel">Хасах</button>
       <button class="updateBt" @click="showUpdate = !showUpdate">Шинэчлэх</button>
       <button class="descBt" @click="showDescription = !showDescription">Тайлбар</button>
+      <button class="recurringBt" @click="showRecurring = !showRecurring">Давтах</button>
     </div>
 
     <!-- Add Todo Input -->
-    <div v-if="showInput && !showDel && !showUpdate && !showDescription" class="add-input">
+    <div v-if="showInput && !showDel && !showUpdate && !showDescription && !showRecurring" class="add-input">
       <input
         v-model="newTitle"
         @keyup.enter="addTodo"
         placeholder="шинэ todo бичнэ үү"
         class="todo-input"
       />
+      <select v-model="newPriority" class="priority-select">
+        <option value="">Priority</option>
+        <option value="HIGH">🔴 High</option>
+        <option value="MEDIUM">🟡 Medium</option>
+        <option value="LOW">🟢 Low</option>
+      </select>
       <button @click="addTodo" class="ok-button">Ok</button>
+    </div>
+
+    <!-- Recurring Todo Form -->
+    <div v-if="showRecurring" class="recurring-form">
+      <h3>⏰ Давтагдах Todo үүсгэх</h3>
+      <div class="form-group">
+        <input
+          v-model="recurringTodo.title"
+          placeholder="Todo нэр..."
+          class="todo-input"
+        />
+      </div>
+      <div class="form-group">
+        <select v-model="recurringTodo.recurrence" class="todo-select">
+          <option value="DAILY">📅 Өдөр бүр</option>
+          <option value="WEEKLY">📆 7 хоног бүр</option>
+          <option value="MONTHLY">📊 Сар бүр</option>
+          <option value="YEARLY">🗓️ Жил бүр</option>
+        </select>
+        <input
+          v-model.number="recurringTodo.occurrences"
+          type="number"
+          min="1"
+          max="365"
+          placeholder="Хэдэн удаа?"
+          class="occurrences-input"
+        />
+      </div>
+      <div class="form-actions">
+        <button @click="createRecurringTodos" class="ok-button">Үүсгэх</button>
+        <button @click="showRecurring = false" class="cancel-button">Болих</button>
+      </div>
     </div>
 
     <!-- Todo List for Selected Day -->
     <div class="selected-day-header">
       <h2>{{ getDayName(selectedDay) }} - {{ formatDate(selectedDay) }}</h2>
+      <span v-if="selectedProjectId" class="filter-badge">
+        Filter: {{ projects.find(p => p.id === selectedProjectId)?.name }}
+      </span>
     </div>
 
     <draggable
@@ -68,6 +147,9 @@
               {{ element.title }}
               <span v-if="element.priority" :class="['priority-badge', element.priority.toLowerCase()]">
                 {{ element.priority }}
+              </span>
+              <span v-if="element.project" class="project-badge">
+                📁 {{ element.project.name }}
               </span>
             </span>
             <input
@@ -300,6 +382,17 @@ const editingDescId = ref(null);
 const editingDescription = ref("");
 const selectedDayIndex = ref(0);
 const weekStartDate = ref(new Date());
+const projects = ref([]);
+const selectedProjectId = ref(null);
+const showProjectInput = ref(false);
+const newProjectName = ref("");
+const newPriority = ref("");
+const showRecurring = ref(false);
+const recurringTodo = ref({
+  title: "",
+  recurrence: "WEEKLY",
+  occurrences: 4
+});
 
 // Subtask state
 const expandedTodoId = ref(null);
@@ -319,6 +412,7 @@ onMounted(() => {
 
   token.value = storedToken;
   fetchTodos();
+  fetchProjects();
   
   setTimeout(() => {
     initializeWebSocket();
@@ -395,6 +489,11 @@ const getTodosForDay = (date) => {
     const todoDateStr = t.startDate.split("T")[0]; // ignore time
     return todoDateStr === targetDateStr;
   });
+  if (selectedProjectId.value) {
+    filtered = filtered.filter(t => t.projectId === selectedProjectId.value);
+  }
+
+  return filtered;
 };
 
 
@@ -410,6 +509,51 @@ const currentDayTodos = computed({
     todos.value.push(...newValue);
   },
 });
+/* -------------------- PROJECTS -------------------- */
+const fetchProjects = async () => {
+  try {
+    const query = `
+      query GetProjects {
+        projects {
+          id
+          name
+        }
+      }
+    `;
+    const data = await graphqlRequest(query);
+    projects.value = data.projects;
+  } catch (e) {
+    console.error("Fetch projects error:", e.message);
+  }
+};
+
+const createProject = async () => {
+  if (!newProjectName.value.trim()) {
+    alert("Project нэр шаардлагатай");
+    return;
+  }
+
+  try {
+    const query = `
+      mutation CreateProject($input: AddProjectInput!) {
+        createProject(input: $input) {
+          id
+          name
+        }
+      }
+    `;
+    const variables = {
+      input: { name: newProjectName.value }
+    };
+    const data = await graphqlRequest(query, variables);
+    projects.value.push(data.createProject);
+    newProjectName.value = "";
+    showProjectInput.value = false;
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
 
 const saveOrder = () => {
   console.log("Order saved");
@@ -427,6 +571,11 @@ const fetchTodos = async () => {
           status
           startDate
           priority
+          projectId         
+          project {         
+            id
+            name
+          }
           subtasks {
             id
             title
@@ -462,6 +611,11 @@ const addTodo = async () => {
           status
           startDate
           priority
+          projectId     
+          project {     
+          id
+          name
+        }
         }
       }
     `;
@@ -469,7 +623,9 @@ const addTodo = async () => {
       input: { 
         title: newTitle.value, 
         status: "TODO",
-        startDate: dateStr 
+        startDate: dateStr,
+        priority: newPriority.value || null,      
+        projectId: selectedProjectId.value || null 
       },
     };
     const data = await graphqlRequest(query, variables);
@@ -477,17 +633,62 @@ const addTodo = async () => {
     // Push to local list
     todos.value.push(data.createTodo);
 
-    // Reset input
+
     newTitle.value = "";
+    newPriority.value = "";
     showInput.value = false;
 
-    // Optionally: refetch from server to ensure consistency
-    // await fetchTodos();
+
+    await fetchTodos();
   } catch (e) {
     alert(e.message);
   }
 };
+const createRecurringTodos = async () => {
+  if (!recurringTodo.value.title.trim()) {
+    alert("Title required");
+    return;
+  }
 
+  const dateStr = selectedDay.value.toISOString().split("T")[0];
+
+  try {
+    const query = `
+      mutation CreateRecurringTodos($input: CreateRecurringTodosInput!) {
+        createRecurringTodos(input: $input) {
+          id
+          title
+          status
+          startDate
+          priority
+          parentId
+        }
+      }
+    `;
+    const variables = {
+      input: {
+        title: recurringTodo.value.title,
+        status: "TODO",
+        startDate: dateStr,
+        recurrence: recurringTodo.value.recurrence,
+        occurrences: recurringTodo.value.occurrences,
+        projectId: selectedProjectId.value || null
+      }
+    };
+    const data = await graphqlRequest(query, variables);
+    todos.value.push(...data.createRecurringTodos);
+    
+    recurringTodo.value = {
+      title: "",
+      recurrence: "WEEKLY",
+      occurrences: 4
+    };
+    showRecurring.value = false;
+    alert(`${data.createRecurringTodos.length} todo амжилттай үүслээ!`);
+  } catch (e) {
+    alert(e.message);
+  }
+};
 
 const delTodo = async (id) => {
   try {
@@ -1183,6 +1384,171 @@ button {
 
 button:hover {
   opacity: 0.9;
+}
+/* Projects Section */
+.projects-section {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.projects-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.projects-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+.add-project-btn {
+  background: #007bff;
+  color: white;
+  padding: 8px 15px;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+.add-project-form {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.project-input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+
+.projects-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.project-chip {
+  background: #f0f0f0;
+  padding: 8px 15px;
+  border-radius: 20px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.project-chip:hover {
+  background: #e0e0e0;
+}
+
+.project-chip.active {
+  background: #007bff;
+  color: white;
+  border-color: #0056b3;
+}
+
+/* Priority */
+.priority-select {
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  margin-left: 10px;
+}
+
+.priority-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  margin-left: 8px;
+}
+
+.priority-badge.high {
+  background: #ff4444;
+  color: white;
+}
+
+.priority-badge.medium {
+  background: #ffaa00;
+  color: white;
+}
+
+.priority-badge.low {
+  background: #44ff44;
+  color: white;
+}
+
+.project-badge {
+  background: #e7f3ff;
+  color: #0066cc;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  margin-left: 8px;
+}
+
+/* Recurring Form */
+.recurring-form {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.recurring-form h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+}
+
+.form-group {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.todo-select {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+
+.occurrences-input {
+  width: 120px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.cancel-button {
+  background: #6c757d;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 5px;
+}
+
+.recurringBt {
+  background-color: #17a2b8;
+}
+
+.filter-badge {
+  background: #e7f3ff;
+  color: #0066cc;
+  padding: 4px 12px;
+  border-radius: 15px;
+  font-size: 12px;
+  margin-left: 10px;
 }
 
 .nemehBt {
