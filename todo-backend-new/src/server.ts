@@ -36,7 +36,7 @@ const wsServer = new WebSocketServer({
 const serverCleanup = useServer(
   {
     schema,
-    context: async (ctx) => {
+    context: async (ctx: any) => {
       const connectionParams = ctx.connectionParams as { authorization?: string, Authorization?: string } | null;
       const token = connectionParams?.authorization || connectionParams?.Authorization;
       if (!token) return {};
